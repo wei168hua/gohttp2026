@@ -2,52 +2,101 @@ name: build-dll
 
 on:
   push:
-    branches: [ "v2", "main" ]
+    branches: [ "v2-gohttp", "main" ]
   workflow_dispatch:
 
 jobs:
+  # ============================================================
+  # Windows：同时编 32 位和 64 位 DLL
+  # ============================================================
   win:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Go 1.20
+        uses: actions/setup-go@v5
         with:
           go-version: '1.20'
+
       - name: 拉依赖
+        shell: bash
         run: |
           go get github.com/refraction-networking/utls@v1.5.4
           go get golang.org/x/net@v0.17.0
           go mod tidy
-      - name: 编译 Windows DLL
-        run: go build -buildmode=c-shared -o gohttp.dll .
+
+      # ---------- 64 位（Python/C# 64 位用）----------
+      - name: 编译 64 位 DLL
+        shell: bash
+        run: go build -buildmode=c-shared -o gohttp_amd64.dll .
         env:
           CGO_ENABLED: '1'
-      - uses: actions/upload-artifact@v4
-        with:
-          name: gohttp-dll
-          path: |
-            gohttp.dll
-            gohttp.h
+          GOARCH: amd64
+          GOOS: windows
 
+      # ---------- 32 位（易语言用）----------
+      - name: 编译 32 位 DLL
+        shell: bash
+        run: go build -buildmode=c-shared -o gohttp_x86.dll .
+        env:
+          CGO_ENABLED: '1'
+          GOARCH: '386'
+          GOOS: windows
+
+      - name: 上传 Windows 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: gohttp-windows
+          path: |
+            gohttp_amd64.dll
+            gohttp_x86.dll
+            gohttp.h
+          if-no-files-found: error
+          retention-days: 30
+
+  # ============================================================
+  # Linux：编 .so（可选）
+  # ============================================================
   linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Go 1.20
+        uses: actions/setup-go@v5
         with:
           go-version: '1.20'
+
       - name: 拉依赖
         run: |
           go get github.com/refraction-networking/utls@v1.5.4
           go get golang.org/x/net@v0.17.0
           go mod tidy
-      - name: 编译 Linux SO
-        run: go build -buildmode=c-shared -o gohttp.so .
+
+      - name: 编译 64 位 SO
+        run: go build -buildmode=c-shared -o gohttp_amd64.so .
         env:
           CGO_ENABLED: '1'
-      - uses: actions/upload-artifact@v4
+          GOARCH: amd64
+          GOOS: linux
+
+      - name: 编译 32 位 SO
+        run: go build -buildmode=c-shared -o gohttp_x86.so .
+        env:
+          CGO_ENABLED: '1'
+          GOARCH: '386'
+          GOOS: linux
+
+      - name: 上传 Linux 产物
+        uses: actions/upload-artifact@v4
         with:
-          name: gohttp-so
+          name: gohttp-linux
           path: |
-            gohttp.so
+            gohttp_amd64.so
+            gohttp_x86.so
             gohttp.h
+          if-no-files-found: error
+          retention-days: 30
