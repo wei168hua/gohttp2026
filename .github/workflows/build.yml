@@ -2,7 +2,7 @@ name: build-dll
 
 on:
   push:
-    branches: [ "v2-gohttp", "main" ]
+    branches: [ "v2-gohttp", "V3", "main" ]
   workflow_dispatch:
 
 jobs:
