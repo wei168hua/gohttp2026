@@ -1,13 +1,14 @@
 package main
 
 /*
-#include <stdlib.h>
+#include <stdlib.h> ok
 */
 import "C"
 
 import (
 	"bufio"
 	"context"
+	cryptotls "crypto/tls"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -115,7 +116,8 @@ func buildTransport(proxyURL string) *http.Transport {
 		TLSHandshakeTimeout: 10 * time.Second,
 		MaxIdleConnsPerHost: 10,
 		ForceAttemptHTTP2:   false,
-		TLSNextProto:        make(map[string]func(string, *tls.Conn) http.RoundTripper),
+		//TLSNextProto:        make(map[string]func(string, *tls.Conn) http.RoundTripper),
+		TLSNextProto: make(map[string]func(string, *cryptotls.Conn) http.RoundTripper),
 	}
 
 	if proxyURL == "" {
