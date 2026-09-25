@@ -269,7 +269,11 @@ func doRequest(cReq *C.HttpRequest) *C.HttpRequest {
     }
 
     // Cookie Jar
-    jar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
+   // jar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
+	
+	var jar http.CookieJar
+newJar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
+jar = newJar
 
     // 提前注入全局 + 请求 Cookie 到 Jar
     if u, err := url.Parse(rawURL); err == nil {
