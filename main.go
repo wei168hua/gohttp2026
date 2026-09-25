@@ -644,6 +644,100 @@ func HttpGetLastError() *C.char {
 }
 
 // ============================================================
+// 易语言友好：按字段取值
+// ============================================================
+
+//export GetStatusCode
+func GetStatusCode(req *C.HttpRequest) C.int {
+    if req == nil { return -1 }
+    return req.status_code
+}
+
+//export GetResponseBody
+func GetResponseBody(req *C.HttpRequest) *C.char {
+    if req == nil { return nil }
+    return cString(goString(req.response_body))
+}
+
+//export GetResponseBodyLen
+func GetResponseBodyLen(req *C.HttpRequest) C.int {
+    if req == nil { return 0 }
+    return req.response_body_len
+}
+
+//export GetResponseHeadersRaw
+func GetResponseHeadersRaw(req *C.HttpRequest) *C.char {
+    if req == nil || req.response_headers.count == 0 { return nil }
+    items := unsafe.Slice(req.response_headers.items, int(req.response_headers.count))
+    var sb strings.Builder
+    for i := 0; i < int(req.response_headers.count); i++ {
+        sb.WriteString(goString(items[i].key))
+        sb.WriteString(": ")
+        sb.WriteString(goString(items[i].value))
+        sb.WriteString("\r\n")
+    }
+    return cString(sb.String())
+}
+
+//export GetResponseCookiesRaw
+func GetResponseCookiesRaw(req *C.HttpRequest) *C.char {
+    if req == nil || req.response_cookies.count == 0 { return nil }
+    items := unsafe.Slice(req.response_cookies.items, int(req.response_cookies.count))
+    var sb strings.Builder
+    for i := 0; i < int(req.response_cookies.count); i++ {
+        sb.WriteString(goString(items[i].key))
+        sb.WriteString("=")
+        sb.WriteString(goString(items[i].value))
+        sb.WriteString("\r\n")
+    }
+    return cString(sb.String())
+}
+
+//export GetResponseHeader
+func GetResponseHeader(req *C.HttpRequest, name *C.char) *C.char {
+    if req == nil || req.response_headers.count == 0 { return nil }
+    target := goString(name)
+    items := unsafe.Slice(req.response_headers.items, int(req.response_headers.count))
+    for i := 0; i < int(req.response_headers.count); i++ {
+        if strings.EqualFold(goString(items[i].key), target) {
+            return cString(goString(items[i].value))
+        }
+    }
+    return nil
+}
+
+//export GetResponseCookie
+func GetResponseCookie(req *C.HttpRequest, name *C.char) *C.char {
+    if req == nil || req.response_cookies.count == 0 { return nil }
+    target := goString(name)
+    items := unsafe.Slice(req.response_cookies.items, int(req.response_cookies.count))
+    for i := 0; i < int(req.response_cookies.count); i++ {
+        if goString(items[i].key) == target {
+            return cString(goString(items[i].value))
+        }
+    }
+    return nil
+}
+
+//export GetFinalURL
+func GetFinalURL(req *C.HttpRequest) *C.char {
+    if req == nil { return nil }
+    return cString(goString(req.final_url))
+}
+
+//export GetElapsedMs
+func GetElapsedMs(req *C.HttpRequest) C.int {
+    if req == nil { return 0 }
+    return req.elapsed_ms
+}
+
+//export GetError
+func GetError(req *C.HttpRequest) *C.char {
+    if req == nil { return nil }
+    return cString(goString(req.error))
+}
+
+// ============================================================
 // 释放
 // ============================================================
 
