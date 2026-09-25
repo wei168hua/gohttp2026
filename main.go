@@ -7,26 +7,28 @@ package main
 import "C"
 
 import (
-    "bytes"
-    "context"
-    "crypto/tls"
-    "encoding/base64"
-    "fmt"
-    "io"
-    "mime/multipart"
-    "net"
-    "net/http"
-    "net/http/cookiejar"
-    "net/url"
-    "os"
-    "path/filepath"
-    "strings"
-    "sync"
-    "time"
-    "unsafe"
+	"bufio"
+	"bytes"
+	"context"
+	"crypto/tls"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
+	"mime/multipart"
+	"net"
+	"net/http"
+	"net/http/cookiejar"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+	"unsafe"
 
-    utls "github.com/refraction-networking/utls"
-    "golang.org/x/net/publicsuffix"
+	utls "github.com/refraction-networking/utls"
+	"golang.org/x/net/publicsuffix"
 )
 
 // ============================================================
@@ -290,11 +292,18 @@ func doRequest(cReq *C.HttpRequest) *C.HttpRequest {
         return errResp(err.Error())
     }
 
-    client := &http.Client{
-        Transport: tr,
-        Jar:       jar,
-        Timeout:   timeout,
-    }
+    	// 如果启用了全局 Jar，优先用它
+	globalJarMu.Lock()
+	if globalJar != nil {
+		jar = globalJar
+	}
+	globalJarMu.Unlock()
+
+	client := &http.Client{
+		Transport: tr,
+		Jar:       jar,
+		Timeout:   timeout,
+	}
     if req.follow_redirect == 0 {
         client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
             return http.ErrUseLastResponse
