@@ -1,33 +1,58 @@
 name: build-dll
-on: [push, workflow_dispatch]
+
+on:
+  push:
+    branches: [ "v1", "main" ]
+  workflow_dispatch:
+
 jobs:
-  win:
+  win32:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-go@v5
-        with: { go-version: '1.21' }
-      - run: go mod tidy
-      - run: go build -buildmode=c-shared -o gohttp.dll .
-        env: { CGO_ENABLED: '1' }
+        with:
+          go-version: '1.20'
+
+      - name: 用 MSYS2 安装 32 位工具链
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW32
+          update: false
+          install: >-
+            mingw-w64-i686-gcc
+          path-type: inherit
+
+      - name: 验证 32 位 gcc
+        shell: msys2 {0}
+        run: |
+          gcc -dumpmachine
+          gcc --version
+
+      - name: 拉依赖
+        shell: bash
+        run: |
+          go mod tidy
+          echo "=== go.mod ==="
+          cat go.mod
+
+      - name: 编译 32 位 DLL
+        shell: msys2 {0}
+        run: |
+          export CC=gcc
+          export CXX=g++
+          export GOARCH=386
+          export GOOS=windows
+          export CGO_ENABLED=1
+          go build -v -buildmode=c-shared -o gohttp.dll .
+          ls -la gohttp.dll
+
       - uses: actions/upload-artifact@v4
         with:
-          name: gohttp-dll
+          name: gohttp-x86
           path: |
             gohttp.dll
             gohttp.h
-  linux:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with: { go-version: '1.21' }
-      - run: go mod tidy
-      - run: go build -buildmode=c-shared -o gohttp.so .
-        env: { CGO_ENABLED: '1' }
-      - uses: actions/upload-artifact@v4
-        with:
-          name: gohttp-so
-          path: |
-            gohttp.so
-            gohttp.h
+          if-no-files-found: error
+          retention-days: 30
