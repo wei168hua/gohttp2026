@@ -653,10 +653,22 @@ func GetStatusCode(req *C.HttpRequest) C.int {
     return req.status_code
 }
 
+//export GetStatusText
+func GetStatusText(req *C.HttpRequest) *C.char {
+    if req == nil { return nil }
+    return cString(goString(req.status_text))
+}
+
 //export GetResponseBody
 func GetResponseBody(req *C.HttpRequest) *C.char {
     if req == nil { return nil }
     return cString(goString(req.response_body))
+}
+
+//export GetResponseBodyBase64
+func GetResponseBodyBase64(req *C.HttpRequest) *C.char {
+    if req == nil { return nil }
+    return cString(goString(req.response_body_base64))
 }
 
 //export GetResponseBodyLen
@@ -665,6 +677,31 @@ func GetResponseBodyLen(req *C.HttpRequest) C.int {
     return req.response_body_len
 }
 
+//export GetFinalURL
+func GetFinalURL(req *C.HttpRequest) *C.char {
+    if req == nil { return nil }
+    return cString(goString(req.final_url))
+}
+
+//export GetTLSVersion
+func GetTLSVersion(req *C.HttpRequest) *C.char {
+    if req == nil { return nil }
+    return cString(goString(req.tls_version))
+}
+
+//export GetElapsedMs
+func GetElapsedMs(req *C.HttpRequest) C.int {
+    if req == nil { return 0 }
+    return req.elapsed_ms
+}
+
+//export GetError
+func GetError(req *C.HttpRequest) *C.char {
+    if req == nil { return nil }
+    return cString(goString(req.error))
+}
+
+// 全部响应头，拼成 "Key: Value\r\n" 多行字符串
 //export GetResponseHeadersRaw
 func GetResponseHeadersRaw(req *C.HttpRequest) *C.char {
     if req == nil || req.response_headers.count == 0 { return nil }
@@ -679,6 +716,7 @@ func GetResponseHeadersRaw(req *C.HttpRequest) *C.char {
     return cString(sb.String())
 }
 
+// 全部 Cookie，拼成 "name=value\r\n" 多行字符串
 //export GetResponseCookiesRaw
 func GetResponseCookiesRaw(req *C.HttpRequest) *C.char {
     if req == nil || req.response_cookies.count == 0 { return nil }
@@ -693,6 +731,7 @@ func GetResponseCookiesRaw(req *C.HttpRequest) *C.char {
     return cString(sb.String())
 }
 
+// 按名字取单个响应头
 //export GetResponseHeader
 func GetResponseHeader(req *C.HttpRequest, name *C.char) *C.char {
     if req == nil || req.response_headers.count == 0 { return nil }
@@ -706,6 +745,7 @@ func GetResponseHeader(req *C.HttpRequest, name *C.char) *C.char {
     return nil
 }
 
+// 按名字取单个响应 Cookie
 //export GetResponseCookie
 func GetResponseCookie(req *C.HttpRequest, name *C.char) *C.char {
     if req == nil || req.response_cookies.count == 0 { return nil }
@@ -719,22 +759,219 @@ func GetResponseCookie(req *C.HttpRequest, name *C.char) *C.char {
     return nil
 }
 
-//export GetFinalURL
-func GetFinalURL(req *C.HttpRequest) *C.char {
+// 一次拿全部响应，返回 JSON 字符串
+//export GetResponseJSON
+func GetResponseJSON(req *C.HttpRequest) *C.char {
     if req == nil { return nil }
-    return cString(goString(req.final_url))
+    headers := map[string]string{}
+    if req.response_headers.count > 0 {
+        items := unsafe.Slice(req.response_headers.items, int(req.response_headers.count))
+        for i := 0; i < int(req.response_headers.count); i++ {
+            headers[goString(items[i].key)] = goString(items[i].value)
+        }
+    }
+    cookies := map[string]string{}
+    if req.response_cookies.count > 0 {
+        items := unsafe.Slice(req.response_cookies.items, int(req.response_cookies.count))
+        for i := 0; i < int(req.response_cookies.count); i++ {
+            cookies[goString(items[i].key)] = goString(items[i].value)
+        }
+    }
+    out := map[string]interface{}{
+        "status_code": int(req.status_code),
+        "status_text": goString(req.status_text),
+        "body":        goString(req.response_body),
+        "body_base64": goString(req.response_body_base64),
+        "body_len":    int(req.response_body_len),
+        "headers":     headers,
+        "cookies":     cookies,
+        "final_url":   goString(req.final_url),
+        "proto":       goString(req.proto),
+        "tls_version": goString(req.tls_version),
+        "elapsed_ms":  int(req.elapsed_ms),
+        "error":       goString(req.error),
+    }
+    data, _ := json.Marshal(out)
+    return cString(string(data))
 }
 
-//export GetElapsedMs
-func GetElapsedMs(req *C.HttpRequest) C.int {
-    if req == nil { return 0 }
-    return req.elapsed_ms
+// ============================================================
+// 多行字符串解析辅助
+// headersBlock 格式："Key: Value\r\nKey2: Value2"
+// cookiesBlock 格式："name=value\r\nname2=value2"
+// ============================================================
+
+func parseHeadersBlock(block string) map[string]string {
+    m := map[string]string{}
+    if block == "" { return m }
+    scanner := bufio.NewScanner(strings.NewReader(block))
+    for scanner.Scan() {
+        line := strings.TrimSpace(scanner.Text())
+        if line == "" || strings.HasPrefix(line, "#") { continue }
+        idx := strings.Index(line, ":")
+        if idx <= 0 { continue }
+        k := strings.TrimSpace(line[:idx])
+        v := strings.TrimSpace(line[idx+1:])
+        if k != "" {
+            m[k] = v
+        }
+    }
+    return m
 }
 
-//export GetError
-func GetError(req *C.HttpRequest) *C.char {
-    if req == nil { return nil }
-    return cString(goString(req.error))
+func parseCookiesBlock(block string) map[string]string {
+    m := map[string]string{}
+    if block == "" { return m }
+    scanner := bufio.NewScanner(strings.NewReader(block))
+    for scanner.Scan() {
+        line := strings.TrimSpace(scanner.Text())
+        if line == "" || strings.HasPrefix(line, "#") { continue }
+        idx := strings.Index(line, "=")
+        if idx <= 0 { continue }
+        k := strings.TrimSpace(line[:idx])
+        v := strings.TrimSpace(line[idx+1:])
+        if k != "" {
+            m[k] = v
+        }
+    }
+    return m
+}
+
+// 从 map 构造 C.KVList，返回 (KVList, 保留的 C 字符串切片)
+func mapToKVListKeep(m map[string]string) (C.KVList, []*C.char) {
+    if len(m) == 0 {
+        return C.KVList{}, nil
+    }
+    n := len(m)
+    mem := C.malloc(C.size_t(n) * C.size_t(unsafe.Sizeof(C.KV{})))
+    items := unsafe.Slice((*C.KV)(mem), n)
+    kept := make([]*C.char, 0, n*2)
+    i := 0
+    for k, v := range m {
+        ck, cv := cString(k), cString(v)
+        items[i] = C.KV{key: ck, value: cv}
+        kept = append(kept, ck, cv)
+        i++
+    }
+    return C.KVList{items: (*C.KV)(mem), count: C.int(n)}, kept
+}
+
+// ============================================================
+// 关键新增：单次请求带头/Cookie，不动全局
+// ============================================================
+
+//export HttpGetWithHeaders
+func HttpGetWithHeaders(url, headersBlock, cookiesBlock, proxy, fingerprint *C.char) *C.HttpRequest {
+    req := &C.HttpRequest{
+        method:      cString("GET"),
+        url:         cString(goString(url)),
+        proxy:       cString(goString(proxy)),
+        fingerprint: cString(goString(fingerprint)),
+        timeout_sec: 30,
+        follow_redirect: 1,
+        auto_decompress: 1,
+    }
+    req.request_headers, _ = mapToKVListKeep(parseHeadersBlock(goString(headersBlock)))
+    req.request_cookies, _ = mapToKVListKeep(parseCookiesBlock(goString(cookiesBlock)))
+    return doRequest(req)
+}
+
+//export HttpPostWithHeaders
+func HttpPostWithHeaders(url, body, contentType, headersBlock, cookiesBlock, proxy, fingerprint *C.char) *C.HttpRequest {
+    req := &C.HttpRequest{
+        method:      cString("POST"),
+        url:         cString(goString(url)),
+        body:        cString(goString(body)),
+        proxy:       cString(goString(proxy)),
+        fingerprint: cString(goString(fingerprint)),
+        timeout_sec: 30,
+        follow_redirect: 1,
+        auto_decompress: 1,
+    }
+    hdrs := parseHeadersBlock(goString(headersBlock))
+    if contentType != nil && goString(contentType) != "" {
+        hdrs["Content-Type"] = goString(contentType)
+    }
+    req.request_headers, _ = mapToKVListKeep(hdrs)
+    req.request_cookies, _ = mapToKVListKeep(parseCookiesBlock(goString(cookiesBlock)))
+    return doRequest(req)
+}
+
+// ============================================================
+// 万能简化版：一个函数覆盖所有方法
+// ============================================================
+
+//export HttpRequestSimple
+func HttpRequestSimple(method, url, headersBlock, cookiesBlock, body, proxy, fingerprint *C.char) *C.HttpRequest {
+    m := goString(method)
+    if m == "" { m = "GET" }
+    req := &C.HttpRequest{
+        method:      cString(m),
+        url:         cString(goString(url)),
+        body:        cString(goString(body)),
+        proxy:       cString(goString(proxy)),
+        fingerprint: cString(goString(fingerprint)),
+        timeout_sec: 30,
+        follow_redirect: 1,
+        auto_decompress: 1,
+    }
+    req.request_headers, _ = mapToKVListKeep(parseHeadersBlock(goString(headersBlock)))
+    req.request_cookies, _ = mapToKVListKeep(parseCookiesBlock(goString(cookiesBlock)))
+    return doRequest(req)
+}
+
+// ============================================================
+// Cookie Jar 全局持久化
+// ============================================================
+
+var (
+    globalJar     http.CookieJar
+    globalJarMu   sync.Mutex
+    globalJarOnce sync.Once
+)
+
+//export HttpEnableGlobalCookieJar
+func HttpEnableGlobalCookieJar(enable C.int) {
+    globalJarMu.Lock()
+    defer globalJarMu.Unlock()
+    if enable == 1 {
+        globalJarOnce.Do(func() {
+            globalJar, _ = cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
+        })
+    } else {
+        globalJar = nil
+    }
+}
+
+//export HttpClearGlobalCookieJar
+func HttpClearGlobalCookieJar() {
+    globalJarMu.Lock()
+    defer globalJarMu.Unlock()
+    globalJar = nil
+    globalJarOnce = sync.Once{}
+}
+
+//export HttpGetGlobalCookieJar
+func HttpGetGlobalCookieJar(url *C.char) *C.char {
+    globalJarMu.Lock()
+    defer globalJarMu.Unlock()
+    if globalJar == nil { return nil }
+    u, err := urlParse(goString(url))
+    if err != nil { return nil }
+    var sb strings.Builder
+    for _, c := range globalJar.Cookies(u) {
+        sb.WriteString(c.Name)
+        sb.WriteString("=")
+        sb.WriteString(c.Value)
+        sb.WriteString("\r\n")
+    }
+    if sb.Len() == 0 { return nil }
+    return cString(sb.String())
+}
+
+// 用 url.Parse 的包装，避免和已有的 net/url 冲突
+func urlParse(s string) (*url.URL, error) {
+    return url.Parse(s)
 }
 
 // ============================================================
